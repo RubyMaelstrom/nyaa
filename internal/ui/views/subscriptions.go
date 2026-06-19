@@ -20,8 +20,13 @@ const (
 )
 
 type SubscriptionsView struct {
-	channels    []ChannelGroup
-	cursor      int
+	channels []ChannelGroup
+	cursor   int
+	// rowOffset is the first rendered row kept on screen, decoupled from the
+	// cursor so mouse hover never scrolls the list; only keyboard/wheel navigation
+	// pulls it along via ensureVisible. It counts rendered rows (a channel with a
+	// feed error renders an extra line), not flat-list indices.
+	rowOffset   int
 	width       int
 	height      int
 	toastHeight int
@@ -68,6 +73,7 @@ func (v SubscriptionsView) Update(msg tea.Msg) (SubscriptionsView, tea.Cmd) {
 				v.mode = channelView
 			}
 			v.cursor = 0
+			v.rowOffset = 0
 			return v, nil
 		case "up", "k":
 			if v.cursor > 0 {
@@ -94,10 +100,38 @@ func (v SubscriptionsView) Update(msg tea.Msg) (SubscriptionsView, tea.Cmd) {
 			if v.mode == recentView {
 				return v.playRecentItem()
 			}
-			return v.playOrToggleChannel()
+			var cmd tea.Cmd
+			v, cmd = v.playOrToggleChannel()
+			v.ensureVisible() // expand/collapse changes the row layout
+			return v, cmd
 		}
+		v.ensureVisible()
 	}
 	return v, nil
+}
+
+// ensureVisible scrolls rowOffset the minimum amount so the selected entry stays
+// on screen after keyboard or wheel navigation. It measures rendered rows (which
+// can exceed flat-list indices when a channel shows a feed error), matching what
+// View draws, and is never called on hover so highlighting can't scroll the list.
+func (v *SubscriptionsView) ensureVisible() {
+	var totalRows, cursorRow, innerH int
+	if v.mode == recentView {
+		recent := v.buildRecentList()
+		totalRows = len(recent)
+		cursorRow = v.cursor
+		title := v.header("♡ recent videos ◡ 30 most recent ♡")
+		footer := theme.Theme.DimStyle.Render("tab channels  •  enter play  •  r refresh  •  esc menu")
+		_, innerH, _ = frameGeometry(v.width, v.frameHeight(), title, footer)
+	} else {
+		rows, cr, _ := v.channelRows(v.buildFlatList())
+		totalRows = len(rows)
+		cursorRow = cr
+		title := v.header("♡ subscriptions (≧◡≦) ♡")
+		footer := theme.Theme.DimStyle.Render("↑↓ navigate  •  tab recent  •  enter expand/play  •  esc menu")
+		_, innerH, _ = frameGeometry(v.width, v.frameHeight(), title, footer)
+	}
+	v.rowOffset = ensureRowVisible(v.rowOffset, cursorRow, totalRows, innerH)
 }
 
 func (v *SubscriptionsView) SetDimensions(width, height int) {
@@ -107,6 +141,19 @@ func (v *SubscriptionsView) SetDimensions(width, height int) {
 
 func (v *SubscriptionsView) SetToastLines(n int) {
 	v.toastHeight = n
+}
+
+// SetCursor moves the selection to index i (clamped to the visible rows). Used
+// by mouse hover to highlight the entry under the pointer.
+func (v *SubscriptionsView) SetCursor(i int) {
+	max := v.visibleItemCount() - 1
+	if i > max {
+		i = max
+	}
+	if i < 0 {
+		i = 0
+	}
+	v.cursor = i
 }
 
 // SetLoading records how many feeds are still being fetched, shown in the header.
@@ -139,6 +186,25 @@ func (v SubscriptionsView) SelectedChannelID() string {
 	return flat[v.cursor].channelID
 }
 
+// SelectedVideoURL returns the link of the video under the cursor, or "" when
+// the cursor is on a channel header (channel view) or nothing is selected.
+func (v SubscriptionsView) SelectedVideoURL() string {
+	if v.mode == recentView {
+		recent := v.buildRecentList()
+		if v.cursor >= 0 && v.cursor < len(recent) {
+			return recent[v.cursor].URL
+		}
+		return ""
+	}
+	flat := v.buildFlatList()
+	if v.cursor >= 0 && v.cursor < len(flat) {
+		if e := flat[v.cursor]; !e.isChannel && e.video != nil {
+			return e.video.URL
+		}
+	}
+	return ""
+}
+
 // LatestItemIDs maps each channel to its newest video ID (for "mark all read").
 func (v SubscriptionsView) LatestItemIDs() map[string]string {
 	out := make(map[string]string)
@@ -167,6 +233,7 @@ func (v *SubscriptionsView) SetChannels(channels []ChannelGroup) {
 	}
 	v.channels = channels
 	v.cursor = 0
+	v.rowOffset = 0
 	v.mode = channelView
 }
 
@@ -333,19 +400,22 @@ func (v *SubscriptionsView) renderChannelView() string {
 	flat := v.buildFlatList()
 	v.clampCursor()
 
-	// Render every row up front, tracking the line that holds the cursor so the
-	// body closure can scroll a fitted window around it.
-	rows, cursorRow := v.channelRows(flat)
+	// Render every row up front; the body closure scrolls a fitted window over
+	// them anchored to rowOffset (kept in sync with the cursor by ensureVisible).
+	rows, _, _ := v.channelRows(flat)
 
 	return Frame(v.width, v.frameHeight(), title, hints, lipgloss.Left, lipgloss.Top,
 		func(innerW, innerH int) string {
-			return windowedLines(rows, cursorRow, innerW, innerH)
+			return windowedLinesFrom(rows, v.rowOffset, innerW, innerH)
 		})
 }
 
 // channelRows renders the flat channel/video list to display lines and returns
-// them along with the line index of the currently selected entry.
-func (v *SubscriptionsView) channelRows(flat []flatListEntry) (rows []string, cursorRow int) {
+// them along with the line index of the currently selected entry and, for each
+// rendered line, the flat-list index it belongs to. The flat-index map lets the
+// mouse code translate a clicked row back to a selectable entry even though a
+// channel can render an extra error line (so rows and flat aren't 1:1).
+func (v *SubscriptionsView) channelRows(flat []flatListEntry) (rows []string, cursorRow int, rowIndex []int) {
 	for i, item := range flat {
 		if i == v.cursor {
 			cursorRow = len(rows)
@@ -384,9 +454,11 @@ func (v *SubscriptionsView) channelRows(flat []flatListEntry) (rows []string, cu
 			default:
 				rows = append(rows, theme.Theme.DimStyle.Render(prefix+" "+label))
 			}
+			rowIndex = append(rowIndex, i)
 
 			if chGroup.Err != nil {
 				rows = append(rows, theme.Theme.ErrorStyle.Render("  ✗ "+chGroup.Err.Error()))
+				rowIndex = append(rowIndex, i) // error line selects its channel
 			}
 		} else if item.video != nil {
 			if i == v.cursor {
@@ -394,9 +466,52 @@ func (v *SubscriptionsView) channelRows(flat []flatListEntry) (rows []string, cu
 			} else {
 				rows = append(rows, theme.Theme.BaseStyle.Render("  • "+item.video.Title))
 			}
+			rowIndex = append(rowIndex, i)
 		}
 	}
-	return rows, cursorRow
+	return rows, cursorRow, rowIndex
+}
+
+// ItemAt maps a mouse Y coordinate to the flat-list (channel view) or recent
+// index (recent view) under it, suitable for SetCursor. ok=false when the
+// pointer is outside the list rows.
+func (v *SubscriptionsView) ItemAt(y int) (int, bool) {
+	if len(v.channels) == 0 {
+		return 0, false
+	}
+
+	if v.mode == recentView {
+		recent := v.buildRecentList()
+		if len(recent) == 0 {
+			return 0, false
+		}
+		title := v.header("♡ recent videos ◡ 30 most recent ♡")
+		footer := theme.Theme.DimStyle.Render("tab channels  •  enter play  •  r refresh  •  esc menu")
+		_, innerH, bodyTop := frameGeometry(v.width, v.frameHeight(), title, footer)
+		row := y - bodyTop
+		if row < 0 || row >= innerH {
+			return 0, false
+		}
+		idx := clampStart(v.rowOffset, len(recent), innerH) + row
+		if idx < 0 || idx >= len(recent) {
+			return 0, false
+		}
+		return idx, true
+	}
+
+	title := v.header("♡ subscriptions (≧◡≦) ♡")
+	footer := theme.Theme.DimStyle.Render("↑↓ navigate  •  tab recent  •  enter expand/play  •  esc menu")
+	_, innerH, bodyTop := frameGeometry(v.width, v.frameHeight(), title, footer)
+	row := y - bodyTop
+	if row < 0 || row >= innerH {
+		return 0, false
+	}
+	rows, _, rowIndex := v.channelRows(v.buildFlatList())
+	rendered := clampStart(v.rowOffset, len(rows), innerH) + row
+	if rendered < 0 || rendered >= len(rowIndex) {
+		return 0, false
+	}
+	return rowIndex[rendered], true
 }
 
 func (v *SubscriptionsView) renderRecentView() string {
@@ -443,7 +558,7 @@ func (v *SubscriptionsView) renderRecentView() string {
 	)
 	return Frame(v.width, v.frameHeight(), title, footer, lipgloss.Left, lipgloss.Top,
 		func(innerW, innerH int) string {
-			return windowedLines(rows, v.cursor, innerW, innerH)
+			return windowedLinesFrom(rows, v.rowOffset, innerW, innerH)
 		})
 }
 

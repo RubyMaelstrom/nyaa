@@ -11,10 +11,13 @@ import (
 // the user can browse beyond a single search result. Enter emits a PlayVideoMsg,
 // reusing the same playback path as the subscriptions view.
 type ChannelBrowse struct {
-	channelID   string
-	name        string
-	items       []rss.RSSItem
-	cursor      int
+	channelID string
+	name      string
+	items     []rss.RSSItem
+	cursor    int
+	// offset is the first item kept on screen, decoupled from the cursor so mouse
+	// hover never scrolls the list (see EnsureCursorVisible in components.List).
+	offset      int
 	width       int
 	height      int
 	toastHeight int
@@ -41,6 +44,55 @@ func (c ChannelBrowse) SelectedItem() *rss.RSSItem {
 		return nil
 	}
 	return &c.items[c.cursor]
+}
+
+// SetCursor moves the selection to index i (clamped); used by mouse hover.
+func (c *ChannelBrowse) SetCursor(i int) {
+	if i < 0 {
+		i = 0
+	}
+	if i > len(c.items)-1 {
+		i = len(c.items) - 1
+	}
+	if i < 0 {
+		i = 0
+	}
+	c.cursor = i
+}
+
+func (c ChannelBrowse) titleView() string {
+	return theme.Theme.TitleStyle.Render("♡ " + c.name + " ♡")
+}
+
+func (c ChannelBrowse) footerView() string {
+	return theme.Theme.DimStyle.Render("↑↓ navigate  •  enter play  •  s subscribe  •  a audio  •  esc back")
+}
+
+// ItemAt maps a mouse Y coordinate to the video index under it, or ok=false when
+// the pointer is outside the list rows. Each item is a single row here.
+func (c ChannelBrowse) ItemAt(y int) (int, bool) {
+	if len(c.items) == 0 {
+		return 0, false
+	}
+	title := c.titleView()
+	_, innerH, bodyTop := frameGeometry(c.width, c.height-c.toastHeight, title, c.footerView())
+	row := y - bodyTop
+	if row < 0 || row >= innerH {
+		return 0, false
+	}
+	start := clampStart(c.offset, len(c.items), innerH)
+	idx := start + row
+	if idx < 0 || idx >= len(c.items) {
+		return 0, false
+	}
+	return idx, true
+}
+
+// ensureVisible scrolls the offset so the cursor stays on screen after keyboard
+// or wheel navigation (each item is one row here).
+func (c *ChannelBrowse) ensureVisible() {
+	_, innerH, _ := frameGeometry(c.width, c.height-c.toastHeight, c.titleView(), c.footerView())
+	c.offset = ensureRowVisible(c.offset, c.cursor, len(c.items), innerH)
 }
 
 func (c ChannelBrowse) Update(msg tea.Msg) (ChannelBrowse, tea.Cmd) {
@@ -75,13 +127,14 @@ func (c ChannelBrowse) Update(msg tea.Msg) (ChannelBrowse, tea.Cmd) {
 				return c, func() tea.Msg { return play }
 			}
 		}
+		c.ensureVisible()
 	}
 	return c, nil
 }
 
 func (c ChannelBrowse) View() string {
-	title := theme.Theme.TitleStyle.Render("♡ " + c.name + " ♡")
-	footer := theme.Theme.DimStyle.Render("↑↓ navigate  •  enter play  •  s subscribe  •  a audio  •  esc back")
+	title := c.titleView()
+	footer := c.footerView()
 
 	if len(c.items) == 0 {
 		body := theme.Theme.DimStyle.Render("no videos found for this channel~ (・_・;)")
@@ -105,6 +158,6 @@ func (c ChannelBrowse) View() string {
 
 	return Frame(c.width, c.height-c.toastHeight, title, footer, lipgloss.Left, lipgloss.Top,
 		func(innerW, innerH int) string {
-			return windowedLines(rows, c.cursor, innerW, innerH)
+			return windowedLinesFrom(rows, c.offset, innerW, innerH)
 		})
 }

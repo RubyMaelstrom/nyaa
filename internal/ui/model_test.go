@@ -177,7 +177,7 @@ func TestBrowseChannelStartsLoad(t *testing.T) {
 	}, 80, 24)
 	m.state = StateResults
 
-	res, cmd := m.Update(key("c"))
+	res, cmd := m.Update(key("o"))
 	m = asModel(res)
 	if m.state != StateLoading {
 		t.Errorf("state = %v, want StateLoading", m.state)

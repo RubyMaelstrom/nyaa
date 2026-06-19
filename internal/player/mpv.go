@@ -24,7 +24,10 @@ func Command(url string, audioOnly, background bool) *exec.Cmd {
 }
 
 func mpvArgs(url string, audioOnly, background bool) []string {
-	args := []string{"--no-osc", "--no-osd-bar"}
+	// Let mpv show its on-screen controller and OSD bar (the default). We used
+	// to pass --no-osc/--no-osd-bar to keep playback chrome-free, but that hid
+	// the seek/volume/play controls people reach for with the mouse.
+	var args []string
 	switch {
 	case background:
 		// Stay off the terminal; rely on the (forced) window for input.

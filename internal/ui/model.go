@@ -205,6 +205,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			name := theme.NextPalette()
 			return m, m.showToast(fmt.Sprintf("theme: %s (◕ᴗ◕✿) ♡", name))
 		}
+		// `c` (or `C`) copies the highlighted video's link from anywhere except
+		// the search input. copyCurrentLink returns nil when no video is under
+		// the cursor, so we fall through to the screen's own `c` handling (the
+		// error view uses `c` for "show cached results").
+		if (msg.String() == "c" || msg.String() == "C") && m.state != StateSearch {
+			if cmd := m.copyCurrentLink(); cmd != nil {
+				return m, cmd
+			}
+		}
 
 		switch m.state {
 		case StateMenu:
@@ -228,6 +237,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case StatePlaying:
 			return m, nil
 		}
+
+	case tea.MouseMsg:
+		return m.handleMouse(msg)
 
 	case versionCheckMsg:
 		m.ytDlpVersion = msg.version
@@ -339,12 +351,7 @@ func (m Model) View() string {
 
 	// A toast reserves exactly its own height at the bottom; the active list
 	// view shrinks its frame by that much so nothing overflows the terminal.
-	var toast string
-	toastLines := 0
-	if m.toast != "" && m.toastTimer > 0 {
-		toast = theme.Theme.CardStyle.Render(theme.Theme.KaomojiStyle.Render(m.toast))
-		toastLines = lipgloss.Height(toast)
-	}
+	toast, toastLines := m.toastBlock()
 	m.menu.SetToastLines(toastLines)
 	m.search.SetToastLines(toastLines)
 	m.results.SetToastLines(toastLines)
@@ -450,7 +457,7 @@ func (m *Model) updateResults(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(m.playCmd(video.URL), m.ensureTick())
 		}
 
-	case "c":
+	case "o":
 		video := m.results.SelectedVideo()
 		if video != nil && video.ChannelID != "" {
 			m.previousState = StateResults

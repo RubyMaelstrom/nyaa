@@ -74,20 +74,53 @@ func (r ResultsList) Update(msg tea.Msg) (ResultsList, tea.Cmd) {
 		case "end", "G":
 			r.list.GoBottom()
 		}
+		r.ensureVisible()
 		r.statusBar.SetPage(r.list.CurrentPage(), r.list.TotalPages())
 	}
 	return r, nil
 }
 
-func (r ResultsList) View() string {
-	count := r.list.Length()
-	title := theme.Theme.TitleStyle.Render(fmt.Sprintf("♡ results ♡ %d videos found ♡", count))
+// ensureVisible scrolls the list so the cursor stays on screen after keyboard or
+// wheel navigation. The visible item count is derived from the live frame
+// geometry (each item is two rows), so it matches what View actually renders
+// regardless of the list's last-set height.
+func (r *ResultsList) ensureVisible() {
+	_, innerH, _ := frameGeometry(r.width, r.height-r.toastHeight, r.titleView(), r.footerView())
+	r.list.EnsureCursorVisible(innerH / 2)
+}
+
+// titleView builds the results header (with the partial-results warning, if
+// any). Shared by View and ItemAt so mouse hit-testing measures the same chrome.
+func (r ResultsList) titleView() string {
+	title := theme.Theme.TitleStyle.Render(fmt.Sprintf("♡ results ♡ %d videos found ♡", r.list.Length()))
 	if r.warning != "" {
 		title = lipgloss.JoinVertical(lipgloss.Center, title, theme.Theme.ErrorStyle.Render("⚠ "+r.warning))
 	}
+	return title
+}
 
+func (r ResultsList) footerView() string {
 	r.statusBar.SetWidth(r.width)
-	footer := r.statusBar.View()
+	return r.statusBar.View()
+}
+
+// SetCursor moves the selection to index i (clamped); used by mouse hover.
+func (r *ResultsList) SetCursor(i int) {
+	r.list.SetCursor(i)
+	r.statusBar.SetPage(r.list.CurrentPage(), r.list.TotalPages())
+}
+
+// ItemAt maps a mouse Y coordinate to the result index under it, or ok=false if
+// the pointer is outside the list rows.
+func (r ResultsList) ItemAt(y int) (int, bool) {
+	title := r.titleView()
+	_, innerH, bodyTop := frameGeometry(r.width, r.height-r.toastHeight, title, r.footerView())
+	return r.list.IndexAtRow(y-bodyTop, innerH)
+}
+
+func (r ResultsList) View() string {
+	title := r.titleView()
+	footer := r.footerView()
 
 	return Frame(r.width, r.height-r.toastHeight, title, footer, lipgloss.Left, lipgloss.Top,
 		func(innerW, innerH int) string {

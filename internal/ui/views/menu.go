@@ -74,21 +74,21 @@ func (m *Menu) SetSubscriptionsCount(count int) {
 	m.subCount = count
 }
 
-func (m Menu) View() string {
-	// An active toast reserves its own rows at the bottom; shrink the frame by
-	// that much so the banner is never shoved off the top of the terminal.
-	height := m.height - m.toastHeight
-
+// titleView picks the banner or the compact header based on the room available.
+// Shared with ItemAt so mouse hit-testing measures the same title height.
+func (m Menu) titleView() string {
 	// The full gradient wordmark needs vertical and horizontal room; on tight
 	// terminals fall back to the one-line header so nothing overflows. The
 	// leading blank line gives the banner some breathing room from the top edge.
-	var title string
-	if height >= 17 && m.width >= 30 {
-		title = "\n" + theme.RenderBanner()
-	} else {
-		title = theme.Theme.TitleStyle.Render(theme.SimpleHeader)
+	if m.height-m.toastHeight >= 17 && m.width >= 30 {
+		return "\n" + theme.RenderBanner()
 	}
+	return theme.Theme.TitleStyle.Render(theme.SimpleHeader)
+}
 
+// bodyView builds the greeting + the three menu rows. The layout (a greeting, a
+// blank line, then one row per item) is what menuFirstItemRow assumes.
+func (m Menu) bodyView() string {
 	pluralSuffix := "s"
 	if m.subCount == 1 {
 		pluralSuffix = ""
@@ -109,12 +109,50 @@ func (m Menu) View() string {
 			lines = append(lines, theme.Theme.BaseStyle.Render("   "+item))
 		}
 	}
-	body := lipgloss.JoinVertical(lipgloss.Center, lines...)
+	return lipgloss.JoinVertical(lipgloss.Center, lines...)
+}
 
-	footer := theme.Theme.DimStyle.Render("↑↓ / tab navigate  •  enter select  •  t theme  •  q quit  •  ? help")
+func (m Menu) footerView() string {
+	return theme.Theme.DimStyle.Render("↑↓ / tab navigate  •  enter select  •  t theme  •  q quit  •  ? help")
+}
 
-	return Frame(m.width, height, title, footer, lipgloss.Center, lipgloss.Center,
+func (m Menu) View() string {
+	// An active toast reserves its own rows at the bottom; shrink the frame by
+	// that much so the banner is never shoved off the top of the terminal.
+	title := m.titleView()
+	body := m.bodyView()
+	return Frame(m.width, m.height-m.toastHeight, title, m.footerView(), lipgloss.Center, lipgloss.Center,
 		func(innerW, innerH int) string { return body })
+}
+
+// SetCursor moves the selection to item i, clamped to the three menu entries.
+func (m *Menu) SetCursor(i int) {
+	if i < 0 {
+		i = 0
+	}
+	if i > 2 {
+		i = 2
+	}
+	m.cursor = i
+}
+
+// ItemAt maps a mouse Y coordinate to the menu item under it. The body is
+// centered vertically, so it accounts for the centering pad the frame inserts.
+func (m Menu) ItemAt(y int) (int, bool) {
+	title := m.titleView()
+	body := m.bodyView()
+	_, innerH, bodyTop := frameGeometry(m.width, m.height-m.toastHeight, title, m.footerView())
+
+	topPad := (innerH - lipgloss.Height(body)) / 2 // mirrors lipgloss.Place(Center)
+	if topPad < 0 {
+		topPad = 0
+	}
+	// The first two body rows are the greeting and a blank; items follow.
+	idx := y - (bodyTop + topPad + 2)
+	if idx < 0 || idx > 2 {
+		return 0, false
+	}
+	return idx, true
 }
 
 func (m Menu) GetSelected() MenuSelection {

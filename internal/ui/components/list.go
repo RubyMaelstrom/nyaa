@@ -7,8 +7,12 @@ import (
 )
 
 type List struct {
-	items    []yt.Video
-	cursor   int
+	items  []yt.Video
+	cursor int
+	// offset is the index of the first item kept on screen. It is decoupled from
+	// the cursor so mouse hover (which moves the cursor) never scrolls the list;
+	// only keyboard/wheel navigation calls EnsureCursorVisible to pull it along.
+	offset   int
 	width    int
 	height   int
 	selected lipgloss.Style
@@ -29,6 +33,7 @@ func NewList(items []yt.Video, selected, normal, dim lipgloss.Style) List {
 func (l *List) SetItems(items []yt.Video) {
 	l.items = items
 	l.cursor = 0
+	l.offset = 0
 }
 
 func (l *List) SetDimensions(width, height int) {
@@ -38,6 +43,43 @@ func (l *List) SetDimensions(width, height int) {
 
 func (l *List) Cursor() int {
 	return l.cursor
+}
+
+// SetCursor moves the selection to index i, clamped to the list bounds. Used by
+// mouse hover to highlight the row under the pointer; it deliberately leaves the
+// scroll offset alone so hovering never scrolls the list.
+func (l *List) SetCursor(i int) {
+	if i < 0 {
+		i = 0
+	}
+	if i > len(l.items)-1 {
+		i = len(l.items) - 1
+	}
+	if i < 0 {
+		i = 0
+	}
+	l.cursor = i
+}
+
+// EnsureCursorVisible scrolls the offset the minimum amount so the cursor sits
+// within the visible window of `visible` items. Called after keyboard/wheel
+// navigation (not hover), so the list only moves when the user asks it to.
+func (l *List) EnsureCursorVisible(visible int) {
+	if visible <= 0 {
+		return
+	}
+	if l.cursor < l.offset {
+		l.offset = l.cursor
+	}
+	if l.cursor >= l.offset+visible {
+		l.offset = l.cursor - visible + 1
+	}
+	if max := len(l.items) - visible; l.offset > max {
+		l.offset = max
+	}
+	if l.offset < 0 {
+		l.offset = 0
+	}
 }
 
 func (l *List) SelectedItem() *yt.Video {
@@ -121,6 +163,48 @@ func (l *List) TotalPages() int {
 	return pages
 }
 
+// window returns the [start, end) slice of items kept on screen for a body that
+// fits `visible` items. It is anchored to the scroll offset (clamped so the
+// window never runs past the end), not the cursor — keeping the offset in sync
+// with the cursor is EnsureCursorVisible's job, called only on keyboard/wheel
+// navigation so hover doesn't scroll.
+func (l List) window(visible int) (start, end int) {
+	if visible <= 0 {
+		visible = len(l.items)
+	}
+	start = l.offset
+	if max := len(l.items) - visible; start > max {
+		start = max
+	}
+	if start < 0 {
+		start = 0
+	}
+	end = start + visible
+	if end > len(l.items) {
+		end = len(l.items)
+	}
+	return start, end
+}
+
+// IndexAtRow maps a body row (0-based, within a body bodyRows tall) to the item
+// index it shows, or ok=false if that row holds no item. Each item occupies two
+// rows (title + meta), so this mirrors View's layout for mouse hit-testing.
+func (l List) IndexAtRow(bodyRow, bodyRows int) (int, bool) {
+	if len(l.items) == 0 || bodyRow < 0 {
+		return 0, false
+	}
+	visible := bodyRows / 2
+	if visible <= 0 {
+		visible = len(l.items)
+	}
+	start, end := l.window(visible)
+	idx := start + bodyRow/2
+	if idx < start || idx >= end {
+		return 0, false
+	}
+	return idx, true
+}
+
 func (l List) View() string {
 	// Read styles from the live palette so an in-app theme switch recolors the
 	// results list immediately (the cached l.selected/normal/dim are ignored).
@@ -132,36 +216,11 @@ func (l List) View() string {
 		return dim.Render("no videos found yet~ " + theme.Theme.KaomojiStyle.Render("(´｡• ω •｡`)"))
 	}
 
-	eachItemTakes := 2
-	visible := (l.height - 2) / eachItemTakes
+	visible := (l.height - 2) / 2
 	if visible <= 0 {
 		visible = len(l.items)
 	}
-
-	start := 0
-	end := visible
-	if end > len(l.items) {
-		end = len(l.items)
-	}
-
-	if l.cursor >= end {
-		start = l.cursor - visible + 1
-		end = l.cursor + 1
-	}
-	if l.cursor < start {
-		start = l.cursor
-		end = start + visible
-		if end > len(l.items) {
-			end = len(l.items)
-		}
-	}
-
-	if start < 0 {
-		start = 0
-	}
-	if end > len(l.items) {
-		end = len(l.items)
-	}
+	start, end := l.window(visible)
 
 	var lines []string
 	for i := start; i < end && i < len(l.items); i++ {

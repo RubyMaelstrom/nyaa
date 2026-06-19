@@ -51,6 +51,48 @@ func blockHeight(s string) int {
 	return lipgloss.Height(s)
 }
 
+// frameChrome reports how many rows the title, footer and their blank
+// separators consume, leaving the rest of the terminal height for the box body.
+func frameChrome(title, footer string) int {
+	titleH := blockHeight(title)
+	footerH := blockHeight(footer)
+	chrome := titleH + footerH
+	if titleH > 0 {
+		chrome++ // blank line under the title
+	}
+	if footerH > 0 {
+		chrome++ // blank line above the footer
+	}
+	return chrome
+}
+
+// frameBodyTop returns the 0-based screen row of the first body content line for
+// a frame with the given title, mirroring the layout produced by Frame. Views
+// use it to translate a mouse Y coordinate into a body row for hit-testing.
+func frameBodyTop(title string) int {
+	top := 0
+	if titleH := blockHeight(title); titleH > 0 {
+		top += titleH + 1 // title rows + the blank separator under it
+	}
+	// Then the box's top border and top padding precede the first content row.
+	top += theme.Theme.BoxStyle.GetBorderTopSize() + theme.Theme.BoxStyle.GetPaddingTop()
+	return top
+}
+
+// frameGeometry returns the inner content size and the body's top screen row for
+// a frame at the given terminal size — everything a view needs to map a mouse
+// click onto a list row. It must stay in lockstep with Frame.
+func frameGeometry(width, height int, title, footer string) (innerW, innerH, bodyTop int) {
+	if width < frameMinWidth {
+		width = frameMinWidth
+	}
+	if height < frameMinHeight {
+		height = frameMinHeight
+	}
+	innerW, innerH = frameInnerSize(width, height, frameChrome(title, footer))
+	return innerW, innerH, frameBodyTop(title)
+}
+
 // Frame renders title (optional, already styled), a bordered body filling the
 // terminal, and footer (optional, already styled). hAlign/vAlign position the
 // body within the inner area — Left/Top for scrolling lists, Center/Center for
@@ -66,16 +108,7 @@ func Frame(width, height int, title, footer string, hAlign, vAlign lipgloss.Posi
 	titleH := blockHeight(title)
 	footerH := blockHeight(footer)
 
-	// chrome = title + blank separator + box(0, sized below) + blank + footer.
-	chrome := titleH + footerH
-	if titleH > 0 {
-		chrome++ // blank line under the title
-	}
-	if footerH > 0 {
-		chrome++ // blank line above the footer
-	}
-
-	innerW, innerH := frameInnerSize(width, height, chrome)
+	innerW, innerH := frameInnerSize(width, height, frameChrome(title, footer))
 	boxOuterH := innerH + theme.Theme.BoxStyle.GetVerticalFrameSize()
 
 	var body string
@@ -115,14 +148,30 @@ func truncateToWidth(s string, width int) string {
 	return strings.Join(lines, "\n")
 }
 
-// windowedLines scrolls a fitted height×width window over rows, keeping
-// cursorRow visible, and truncates each shown row to width so long titles never
-// wrap and push the layout past the terminal edge.
-func windowedLines(rows []string, cursorRow, width, height int) string {
+// clampStart clamps a scroll offset so a size-tall window over total rows never
+// runs past either end. Used by views that track their own scroll offset (so
+// hover doesn't move the list) instead of re-deriving it from the cursor.
+func clampStart(start, total, size int) int {
+	if total <= size || size <= 0 {
+		return 0
+	}
+	if start > total-size {
+		start = total - size
+	}
+	if start < 0 {
+		start = 0
+	}
+	return start
+}
+
+// windowedLinesFrom renders the height-tall window of rows starting at the given
+// (clamped) scroll offset, truncating each shown row to width so long titles
+// never wrap and push the layout past the terminal edge.
+func windowedLinesFrom(rows []string, start, width, height int) string {
 	if len(rows) == 0 {
 		return ""
 	}
-	start := windowStart(cursorRow, len(rows), height)
+	start = clampStart(start, len(rows), height)
 	end := start + height
 	if end > len(rows) {
 		end = len(rows)
@@ -134,19 +183,17 @@ func windowedLines(rows []string, cursorRow, width, height int) string {
 	return strings.Join(out, "\n")
 }
 
-// windowStart returns the first index of a size-tall window over total items
-// that keeps cursor visible, biased to center the cursor. Preserves the
-// familiar scrolling feel while guaranteeing the window never overflows.
-func windowStart(cursor, total, size int) int {
-	if total <= size || size <= 0 {
+// ensureRowVisible scrolls offset the minimum amount so cursorRow stays within a
+// size-tall window over total rows, then clamps it. Returns the new offset.
+func ensureRowVisible(offset, cursorRow, total, size int) int {
+	if size <= 0 {
 		return 0
 	}
-	start := cursor - size/2
-	if start < 0 {
-		start = 0
+	if cursorRow < offset {
+		offset = cursorRow
 	}
-	if start > total-size {
-		start = total - size
+	if cursorRow >= offset+size {
+		offset = cursorRow - size + 1
 	}
-	return start
+	return clampStart(offset, total, size)
 }

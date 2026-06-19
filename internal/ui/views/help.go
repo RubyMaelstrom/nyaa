@@ -40,9 +40,11 @@ func (h HelpOverlay) View() string {
 	keys := []helpKey{
 		{"↑ / k", "Move selection up"},
 		{"↓ / j", "Move selection down"},
+		{"Mouse", "Hover to highlight • click to play • right-click back"},
 		{"Enter", "Play selected / Submit / Expand"},
 		{"Esc", "Cancel / Go back"},
-		{"c", "Browse the channel's videos (results)"},
+		{"c", "Copy the video's link to the clipboard"},
+		{"o", "Browse the channel's videos (results)"},
 		{"a", "Toggle audio-only playback"},
 		{"s", "Subscribe to channel"},
 		{"t", "Cycle the color theme ♡"},
