@@ -6,8 +6,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/user/nyaa-tui/internal/ui/views"
-	"github.com/user/nyaa-tui/internal/yt"
+	"github.com/user/nyaa/internal/ui/views"
+	"github.com/user/nyaa/internal/yt"
 )
 
 func key(s string) tea.KeyMsg {
@@ -15,7 +15,7 @@ func key(s string) tea.KeyMsg {
 }
 
 // newTestModel isolates config (subscriptions) into a temp dir so tests don't
-// read or write the developer's real ~/.config/nyaa-tui.
+// read or write the developer's real ~/.config/nyaa.
 func newTestModel(t *testing.T) Model {
 	t.Helper()
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())

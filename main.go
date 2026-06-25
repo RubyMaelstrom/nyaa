@@ -5,9 +5,9 @@ import (
 	"os"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/user/nyaa-tui/internal/opml"
-	"github.com/user/nyaa-tui/internal/subscriptions"
-	"github.com/user/nyaa-tui/internal/ui"
+	"github.com/user/nyaa/internal/opml"
+	"github.com/user/nyaa/internal/subscriptions"
+	"github.com/user/nyaa/internal/ui"
 )
 
 func main() {

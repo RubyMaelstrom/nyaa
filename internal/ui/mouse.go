@@ -3,7 +3,7 @@ package ui
 import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/user/nyaa-tui/internal/ui/theme"
+	"github.com/user/nyaa/internal/ui/theme"
 )
 
 // handleMouse translates mouse events into the same actions as the keyboard:

@@ -2,8 +2,8 @@ package components
 
 import (
 	"github.com/charmbracelet/lipgloss"
-	"github.com/user/nyaa-tui/internal/ui/theme"
-	"github.com/user/nyaa-tui/internal/yt"
+	"github.com/user/nyaa/internal/ui/theme"
+	"github.com/user/nyaa/internal/yt"
 )
 
 type List struct {

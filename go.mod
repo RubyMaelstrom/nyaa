@@ -1,4 +1,4 @@
-module github.com/user/nyaa-tui
+module github.com/user/nyaa
 
 go 1.26.3
 

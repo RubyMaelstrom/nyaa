@@ -6,8 +6,8 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/user/nyaa-tui/internal/rss"
-	"github.com/user/nyaa-tui/internal/yt"
+	"github.com/user/nyaa/internal/rss"
+	"github.com/user/nyaa/internal/yt"
 )
 
 func makeRSSItems(n int) []rss.RSSItem {

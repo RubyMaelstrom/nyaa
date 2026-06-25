@@ -4,7 +4,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/user/nyaa-tui/internal/ui/theme"
+	"github.com/user/nyaa/internal/ui/theme"
 )
 
 type SearchInput struct {

@@ -3,8 +3,8 @@ package views
 import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/user/nyaa-tui/internal/rss"
-	"github.com/user/nyaa-tui/internal/ui/theme"
+	"github.com/user/nyaa/internal/rss"
+	"github.com/user/nyaa/internal/ui/theme"
 )
 
 // ChannelBrowse lists a single channel's recent uploads (from its RSS feed) so

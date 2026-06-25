@@ -8,8 +8,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/user/nyaa-tui/internal/rss"
-	"github.com/user/nyaa-tui/internal/yt"
+	"github.com/user/nyaa/internal/rss"
+	"github.com/user/nyaa/internal/yt"
 )
 
 var termSizes = [][2]int{{80, 24}, {120, 40}, {100, 30}, {40, 14}, {200, 60}}

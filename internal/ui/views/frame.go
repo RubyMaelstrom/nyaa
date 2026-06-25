@@ -5,7 +5,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/user/nyaa-tui/internal/ui/theme"
+	"github.com/user/nyaa/internal/ui/theme"
 )
 
 // Shared full-screen layout used by every browsing window so they resize

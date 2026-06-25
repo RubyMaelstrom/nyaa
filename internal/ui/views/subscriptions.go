@@ -7,9 +7,9 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/user/nyaa-tui/internal/rss"
-	"github.com/user/nyaa-tui/internal/subscriptions"
-	"github.com/user/nyaa-tui/internal/ui/theme"
+	"github.com/user/nyaa/internal/rss"
+	"github.com/user/nyaa/internal/subscriptions"
+	"github.com/user/nyaa/internal/ui/theme"
 )
 
 type viewMode int

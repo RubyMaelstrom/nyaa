@@ -131,7 +131,7 @@ var BannerLines = []string{
 // BannerTagline sits under the wordmark on the menu.
 var BannerTagline = "♡ a kawaii youtube tui ♡"
 
-var SimpleHeader = "(◕‿◕✿) nyaa-tui"
+var SimpleHeader = "(◕‿◕✿) nyaa"
 
 // RenderBanner colors the wordmark with a gentle three-stop gradient drawn from
 // the active palette, then drops the tagline beneath it in dim.

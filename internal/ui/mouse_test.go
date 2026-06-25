@@ -4,8 +4,8 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/user/nyaa-tui/internal/ui/views"
-	"github.com/user/nyaa-tui/internal/yt"
+	"github.com/user/nyaa/internal/ui/views"
+	"github.com/user/nyaa/internal/yt"
 )
 
 func resultsModel(t *testing.T) Model {

@@ -5,8 +5,8 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/user/nyaa-tui/internal/rss"
-	"github.com/user/nyaa-tui/internal/subscriptions"
+	"github.com/user/nyaa/internal/rss"
+	"github.com/user/nyaa/internal/subscriptions"
 )
 
 func makeChannel(id, name, lastSeen string, itemIDs ...string) ChannelGroup {
