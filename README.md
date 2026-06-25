@@ -1,4 +1,4 @@
-#nyaa, a terminal interface for YouTube
+# nyaa, a terminal interface for YouTube
 
 Do you want to watch YouTube, but you don't want to load up a huge browser to view their enormous JS site? Well, nyaa is a potential solution.
 
