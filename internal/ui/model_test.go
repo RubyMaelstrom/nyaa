@@ -214,3 +214,94 @@ func TestViewWithToastFitsTerminal(t *testing.T) {
 		t.Errorf("view with toast height %d exceeds terminal height 24", h)
 	}
 }
+
+// When playback fails, [R] Retry must replay the failed video — even when there
+// was no prior search (played from subscriptions/a channel), the case where
+// Retry used to silently do nothing.
+func TestRetryReplaysFailedPlayback(t *testing.T) {
+	m := newTestModel(t)
+	m.lastQuery = "" // came from subscriptions, not a search
+	m.previousState = StateSubscription
+	m.state = StatePlaying
+	m.nowPlaying = &yt.Video{Title: "Cute Cats", URL: "https://youtu.be/abc123"}
+
+	// A permanent error goes straight to the error screen (transient throttles
+	// are auto-retried instead — see TestAutoRetryOnThrottle).
+	res, _ := m.Update(playFinishedMsg{err: someErr("Playback ended unexpectedly")})
+	m = asModel(res)
+	if m.state != StateError {
+		t.Fatalf("after failed playback state = %v, want StateError", m.state)
+	}
+	if m.retryVideo == nil || m.retryVideo.URL != "https://youtu.be/abc123" {
+		t.Fatalf("retryVideo = %v, want the failed video", m.retryVideo)
+	}
+
+	res, cmd := m.Update(key("r"))
+	m = asModel(res)
+	if m.state != StatePlaying {
+		t.Fatalf("after [R] Retry state = %v, want StatePlaying", m.state)
+	}
+	if m.nowPlaying == nil || m.nowPlaying.URL != "https://youtu.be/abc123" {
+		t.Fatalf("nowPlaying = %v, want the replayed video", m.nowPlaying)
+	}
+	if cmd == nil {
+		t.Error("Retry should return a playback command, got nil")
+	}
+}
+
+// A search/extraction error clears retryVideo so [R] Retry re-runs the search
+// instead of replaying a stale video.
+func TestSearchErrorDoesNotReplayVideo(t *testing.T) {
+	m := newTestModel(t)
+	m.retryVideo = &yt.Video{URL: "https://youtu.be/stale"}
+
+	res, _ := m.Update(errorMsg{err: someErr("no results")})
+	m = asModel(res)
+	if m.retryVideo != nil {
+		t.Fatalf("search error should clear retryVideo, got %v", m.retryVideo)
+	}
+}
+
+// A transient stream-open failure (mpv exit 2) is silently retried on a fresh
+// launch up to maxPlayRetries times before the error screen ever appears.
+func TestAutoRetryOnThrottle(t *testing.T) {
+	m := newTestModel(t)
+	m.state = StatePlaying
+	m.nowPlaying = &yt.Video{Title: "Obscure Clip", URL: "https://youtu.be/xyz789"}
+
+	// Each throttle hit keeps us in StatePlaying and schedules another attempt.
+	for i := 1; i <= maxPlayRetries; i++ {
+		res, cmd := m.Update(playFinishedMsg{err: someErr("exit status 2")})
+		m = asModel(res)
+		if m.state != StatePlaying {
+			t.Fatalf("attempt %d: state = %v, want StatePlaying (auto-retrying)", i, m.state)
+		}
+		if m.playAttempts != i {
+			t.Fatalf("attempt %d: playAttempts = %d, want %d", i, m.playAttempts, i)
+		}
+		if cmd == nil {
+			t.Fatalf("attempt %d: expected a retry command, got nil", i)
+		}
+		if m.nowPlaying == nil {
+			t.Fatalf("attempt %d: nowPlaying cleared, retry would have no URL", i)
+		}
+	}
+
+	// Budget exhausted: the next failure surfaces the error screen with the
+	// video remembered for manual [R] Retry.
+	res, _ := m.Update(playFinishedMsg{err: someErr("exit status 2")})
+	m = asModel(res)
+	if m.state != StateError {
+		t.Fatalf("after exhausting retries state = %v, want StateError", m.state)
+	}
+	if m.retryVideo == nil || m.retryVideo.URL != "https://youtu.be/xyz789" {
+		t.Fatalf("retryVideo = %v, want the failed video", m.retryVideo)
+	}
+	if m.playAttempts != 0 {
+		t.Errorf("playAttempts = %d, want 0 (reset once we give up)", m.playAttempts)
+	}
+}
+
+type someErr string
+
+func (e someErr) Error() string { return string(e) }

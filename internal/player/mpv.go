@@ -44,6 +44,16 @@ func mpvArgs(url string, audioOnly, background bool) []string {
 	return append(args, url)
 }
 
+// IsRetryable reports whether an mpv failure is a transient stream-open error
+// (mpv exits 2). That's almost always YouTube load-shedding the connection, and
+// a fresh launch — new signed URL, likely a different CDN backend — usually
+// clears it, the same way rss fresh-connection retries clear feed throttling. It
+// matches both the raw error and the friendly message from ClassifyError, which
+// keeps the underlying "exit status 2" text.
+func IsRetryable(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "exit status 2")
+}
+
 // ClassifyError maps an mpv launch/exit error to a friendly message.
 func ClassifyError(err error) error {
 	if err == nil {
@@ -60,6 +70,10 @@ func ClassifyError(err error) error {
 		return fmt.Errorf("Permission denied running mpv~ (T_T)")
 	case strings.Contains(lower, "no such file") || strings.Contains(lower, "invalid url"):
 		return fmt.Errorf("Invalid video URL... (・_・;)")
+	case strings.Contains(lower, "exit status 2"):
+		// mpv exits 2 when it can't open the stream — almost always YouTube
+		// rate-limiting the connection rather than a broken video.
+		return fmt.Errorf("Couldn't load that video stream~ (>﹏<)\nYouTube may be throttling this connection. Wait a moment, then [R] Retry.\nError: %v", err)
 	default:
 		return fmt.Errorf("Playback ended unexpectedly... (qwq)\nError: %v", err)
 	}

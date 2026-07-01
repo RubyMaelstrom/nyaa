@@ -64,6 +64,8 @@ type Model struct {
 	width             int
 	height            int
 	nowPlaying        *yt.Video
+	retryVideo        *yt.Video // video whose playback just failed, replayed by [R] Retry
+	playAttempts      int       // transient stream-open retries used for the current video
 	cachedVideos      []yt.Video
 	cachedQuery       string
 	partialWarning    string
@@ -107,6 +109,16 @@ const (
 	feedRefreshDeadline = 20 * time.Second
 	feedFastRounds      = 3
 	feedRetrySpacing    = 3 * time.Second
+)
+
+// Playback retry policy. mpv exiting 2 is nearly always a transient throttle at
+// stream-open (see player.IsRetryable). Rather than dropping straight to the
+// error screen, we silently relaunch on a fresh backend a few times — the
+// now-playing animation stays up, so it just reads as "loading" — and only
+// surface the error once the whole throttle window looks bad.
+const (
+	maxPlayRetries   = 3
+	playRetrySpacing = 1500 * time.Millisecond
 )
 
 // errFeedThrottled is shown for a feed still failing at the deadline that has no
@@ -283,7 +295,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case playFinishedMsg:
-		m.handlePlayFinished(msg)
+		return m, m.handlePlayFinished(msg)
+
+	case replayMsg:
+		// Auto-retry after a transient stream-open failure. Guard on StatePlaying
+		// so a stray tick can't yank the user out of wherever they navigated to.
+		if m.state == StatePlaying && m.nowPlaying != nil {
+			return m, tea.Batch(m.playCmd(m.nowPlaying.URL), m.ensureTick())
+		}
 		return m, nil
 
 	case feedFetchedMsg:
@@ -317,6 +336,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.previousState = m.state
 		m.state = StatePlaying
+		m.playAttempts = 0
 		return m, tea.Batch(m.playCmd(video.URL), m.ensureTick())
 	}
 
@@ -454,6 +474,7 @@ func (m *Model) updateResults(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.nowPlaying = video
 			m.previousState = StateResults
 			m.state = StatePlaying
+			m.playAttempts = 0
 			return m, tea.Batch(m.playCmd(video.URL), m.ensureTick())
 		}
 
@@ -483,12 +504,26 @@ func (m *Model) updateResults(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
+// retryFromError handles [R] Retry on the error screen. A failed playback
+// replays the same video (a fresh connection often dodges a transient YouTube
+// throttle); otherwise it re-runs the last search. If there's nothing to retry
+// it's a no-op.
+func (m *Model) retryFromError() (tea.Model, tea.Cmd) {
+	if m.retryVideo != nil {
+		m.nowPlaying = m.retryVideo
+		m.state = StatePlaying
+		return m, tea.Batch(m.playCmd(m.retryVideo.URL), m.ensureTick())
+	}
+	if m.lastQuery != "" {
+		return m.enterLoading("retrying search for "+m.lastQuery+"...", m.searchCmd(m.lastQuery))
+	}
+	return m, nil
+}
+
 func (m *Model) updateError(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "r":
-		if m.lastQuery != "" {
-			return m.enterLoading("retrying search for "+m.lastQuery+"...", m.searchCmd(m.lastQuery))
-		}
+		return m.retryFromError()
 
 	case "c":
 		if len(m.cachedVideos) > 0 {
@@ -513,9 +548,7 @@ func (m *Model) updateError(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "enter":
 		switch m.errorView.Cursor() {
 		case 0:
-			if m.lastQuery != "" {
-				return m.enterLoading("retrying search for "+m.lastQuery+"...", m.searchCmd(m.lastQuery))
-			}
+			return m.retryFromError()
 		case 1:
 			if len(m.cachedVideos) > 0 {
 				m.videos = m.cachedVideos
@@ -681,24 +714,43 @@ func (m *Model) handleSearchResult(msg searchResultMsg) {
 }
 
 func (m *Model) handleError(msg errorMsg) {
+	m.retryVideo = nil // search/extraction error: [R] Retry re-runs the search
 	m.errorView = views.NewErrorViewWithError(msg.err)
 	m.errorView.SetError(msg.err)
 	m.state = StateError
 }
 
-func (m *Model) handlePlayFinished(msg playFinishedMsg) {
+func (m *Model) handlePlayFinished(msg playFinishedMsg) tea.Cmd {
 	if msg.err != nil {
+		// Transient throttle at stream-open: relaunch on a fresh backend after a
+		// short pause instead of failing. Stay in StatePlaying (and keep
+		// nowPlaying) so the animation carries on and the next attempt has a URL.
+		if player.IsRetryable(msg.err) && m.playAttempts < maxPlayRetries && m.nowPlaying != nil {
+			m.playAttempts++
+			return tea.Tick(playRetrySpacing, func(time.Time) tea.Msg {
+				return replayMsg{}
+			})
+		}
+		m.retryVideo = m.nowPlaying // remember it so [R] Retry can replay the video
 		m.errorView = views.NewErrorView(msg.err.Error())
 		m.state = StateError
 	} else {
+		m.retryVideo = nil
 		if m.previousState != 0 {
 			m.state = m.previousState
 		} else {
 			m.state = StateResults
 		}
 	}
+	m.playAttempts = 0
 	m.nowPlaying = nil
+	return nil
 }
+
+// replayMsg re-launches mpv for the current nowPlaying after a transient
+// stream-open failure. It deliberately routes around the normal play entry
+// points so it doesn't reset playAttempts (which would loop forever).
+type replayMsg struct{}
 
 // danceFrames cycle a little dancing kaomoji while a video plays.
 var danceFrames = []string{

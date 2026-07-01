@@ -36,6 +36,11 @@ func TestClassifyMpvError(t *testing.T) {
 			err:         &execError{msg: "something went wrong"},
 			wantContain: "Playback ended unexpectedly",
 		},
+		{
+			name:        "mpv stream open failure",
+			err:         &execError{msg: "exit status 2"},
+			wantContain: "throttling",
+		},
 	}
 
 	for _, tt := range tests {
